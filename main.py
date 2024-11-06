@@ -1,66 +1,80 @@
 #!/bin/usr/python3
 # -*-coding:Utf-8 -*
 
-# Name:     main.py
-# Author:   Munier Louis
-# Version:  1.2
-# Date:     2024-11-05
+"""
+main.py
 
-# Script to shuffle and send e-mail in the case of a friendly secret santa.
+Author: Munier Louis
+Version: 1.2
+Date: 2024-11-06
 
-import random
-import smtplib
-import ssl
-import yaml
+Script to shuffle and send e-mail in the case of a friendly secret santa.
+It gets the list of people from a file, shuffles it, saves it to a file, and
+sends mail to each person. It also keeps information from previous years to
+avoid sending mail to the same person each time.
+"""
 
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from datetime import datetime
 
+import getpass
+import random
+import smtplib
+import ssl
+import yaml
+
 
 def main():
+    """Main function of the script."""
     list_people = []
-    current_year = datetime.now().year
 
     global_config = get_global_config()
     private_config = get_config(global_config["private_folder"])
 
     # Recover peoples from file
-    answer = input("[Question] - Which yaml sublist to take ? [test] ")
-    if answer == "":
-        answer = "test"
-    elif answer not in private_config:
+    config_sublist = input("[Question] - Which yaml sublist to take ? [test_config] ")
+    if config_sublist == "":
+        config_sublist = "test_config"
+    elif config_sublist not in private_config:
         print("[ERROR] - This sublist does not exist.")
         return
 
-    list_people = recover_people(private_config[answer]["input_file"])
+    list_people = recover_people(global_config["private_folder"], config_sublist)
 
     # Shuffle list if
     answer = input("[Question] - Would you like to shuffle list ? [y/N] ")
     if answer.lower() == "y":
         random.shuffle(list_people)
 
-    # Save people to file
-    yaml.add_representer(str, str_presenter)
-    save_people(list_people, private_config["test"]["output_file"])
+    # Save people order
+    output_file = (
+        global_config["private_folder"]
+        + "/"
+        + config_sublist
+        + "/output_mail_list.yaml"
+    )
+    save_people(list_people, output_file)
 
     # Send mail
     answer = input("[Question] - Would you like to send mail ? [y/N] ")
     if answer.lower() == "y":
-        password = input("[Question] - Type your password and press enter: ")
+        password = prompt_for_password()
 
-        for n, people in enumerate(list_people):
-            next_people = list_people[(n + 1) % len(list_people)][0]
-            mail_body = create_body(people[0], next_people)
+        for idx, people in enumerate(list_people):
+            next_people = list_people[(idx + 1) % len(list_people)][0]
+            mail_body = create_body(
+                people[0], next_people, private_config[config_sublist]["mail_body"]
+            )
 
             send_email(
-                private_config["mail_sender"],
-                people[1],
-                private_config["mail_subject"],
                 mail_body,
                 password,
                 private_config["smtp_server"],
                 private_config["port"],
+                sender=private_config["mail_sender"],
+                recipient=people[1],
+                subject=private_config[config_sublist]["mail_subject"],
             )
 
 
@@ -71,7 +85,7 @@ def get_global_config() -> dict:
     Returns:
         dict: The global configuration loaded from 'global_config.yaml'.
     """
-    with open("global_config.yaml") as config_file:
+    with open("global_config.yaml", "r", encoding="utf-8") as config_file:
         config = yaml.safe_load(config_file)
 
     return config
@@ -100,55 +114,44 @@ def get_config(private_folder: str) -> dict:
     file_path += answer
 
     # Load the config file
-    with open(file_path) as config_file:
+    with open(file_path, "r", encoding="utf-8") as config_file:
         config = yaml.safe_load(config_file)
 
     return config
 
 
-def recover_people(input_file: str) -> list:
+def recover_people(private_folder: str, config_sublist: str) -> list:
     """
-    Recover people from a given input file, optionally shuffle the list, and save to an output file.
+    Recover people from a given input file, return it as a list of tuples.
 
     Args:
-        input_file (str): The path to the input file containing the list of people.
+        private_folder (str): The path to the private folder containing the input
+                              and output files.
+        config_sublist (str): The sublist to take configuration from.
 
     Returns:
-        list: A list of tuples, where each tuple contains the name and additional information of a person.
+        list: A list of tuples, where each tuple contains the name and additional
+              information of a person.
     """
+    # Get the input file to use
+    input_sublist = ""
+    current_year = datetime.now().year
+    input_file = private_folder + f"/{config_sublist}/input_mail_list.yaml"
+
+    if config_sublist == "test_config":
+        input_sublist = "test_config"
+    else:
+        input_sublist = f"year_{current_year}"
+
     # Recover peoples from file
-    info_people = []
-    with open(input_file, "r") as santas:
-        for people in santas:
-            people_split = people[:-1].split(",")
-            info_people.append((people_split[0], people_split[1]))
+    with open(input_file, "r", encoding="utf-8") as info:
+        dict_info_people = yaml.safe_load(info)[input_sublist]
 
-    if len(info_people) == 0:
+    if not dict_info_people:
         print("[ERROR] - List of people is empty.")
+        return []
 
-    return info_people
-
-
-def str_presenter(dumper: yaml.Dumper, data: str) -> yaml.Node:
-    """
-    Custom YAML string presenter for PyYAML.
-
-    This function modifies the way strings are represented in YAML format.
-    If the string contains a newline character, it will be represented using
-    the block style (|). Otherwise, it will be represented using the default
-    scalar style.
-
-    Args:
-        dumper (yaml.Dumper): The YAML dumper instance.
-        data (str): The string data to be represented.
-
-    Returns:
-        yaml.Node: The YAML node representing the string.
-    """
-    if "\n" in data:
-        return dumper.represent_scalar("tag:yaml.org,2002:str", data, style="|")
-
-    return dumper.represent_scalar("tag:yaml.org,2002:str", data)
+    return list(dict_info_people.items())
 
 
 def save_people(list_people: list, output_file: str):
@@ -156,30 +159,28 @@ def save_people(list_people: list, output_file: str):
     Save the list of people into the output file.
 
     Args:
-        list_people (list): A list of tuples, where each tuple contains the name and additional information of a person.
-        output_file (str): The path to the output file where the list of people will be saved.
+        list_people (list): A list of tuples, where each tuple contains the name
+                            and additional information of a person.
+        output_file (str): The path to the output file where the list of people
+                           will be saved.
     """
     current_year = datetime.now().year
 
     # Load the existing data from the YAML file
     try:
-        with open(output_file, "r") as file:
+        with open(output_file, "r", encoding="utf-8") as file:
             # Load existing data or initialize as empty dict if file is empty
             data = yaml.safe_load(file) or {}
     except FileNotFoundError:
         data = {}  # Start with an empty dict if the file doesn't exist
 
     # Add the new entry to the data
-    str_people = ""
-    for people in list_people:
-        str_people += f"{people[0]},{people[1]}\n"
-
-    new_entry = {f"year_{current_year}": str_people}
+    new_entry = {f"year_{current_year}": dict(list_people)}
     data.update(new_entry)
 
     # Write the updated data back to the YAML file
-    with open(output_file, "w") as file:
-        yaml.dump(data, file, default_flow_style=False)
+    with open(output_file, "w", encoding="utf-8") as file:
+        yaml.dump(data, file, default_flow_style=False, sort_keys=False)
 
 
 def create_body(recipient: str, target: str, mail_body: str) -> str:
@@ -194,49 +195,49 @@ def create_body(recipient: str, target: str, mail_body: str) -> str:
     Returns:
         str: The mail body with placeholders replaced by the recipient and target names.
     """
-    mail_body.replace("CFG_RECIPIENT", recipient)
-    mail_body.replace("CFG_TARGET", target)
+    mail_body = mail_body.replace("CFG_RECIPIENT", recipient)
+    mail_body = mail_body.replace("CFG_TARGET", target)
 
     return mail_body
 
 
-def send_email(
-    mail_sender: str,
-    mail_recipient: str,
-    mail_subject: str,
-    body: str,
-    password: str,
-    smtp_server: str,
-    port: int,
-):
+def prompt_for_password() -> str:
+    """
+    Prompts the user for a password securely.
+
+    Returns:
+        str: The password entered by the user.
+    """
+    return getpass.getpass("[Question] - Type your password and press enter: ")
+
+
+def send_email(body: str, password: str, smtp_server: str, port: int, **mail: dict):
     """
     Sends an email using the specified SMTP server and port.
 
     Args:
-        mail_sender (str): The email address of the sender.
-        mail_recipient (str): The email address of the recipient.
-        mail_subject (str): The subject of the email.
         body (str): The body of the email.
         password (str): The password for the sender's email account.
         smtp_server (str): The SMTP server address.
         port (int): The port to use for the SMTP server.
+        mail (dict): A dictionary containing the email parameters.
     """
     # Create a text/plain message
     msg = MIMEMultipart()
     msg.attach(MIMEText(body, "plain"))
 
     # Set email parameters
-    msg["Subject"] = mail_subject
-    msg["From"] = mail_sender
-    msg["To"] = mail_recipient
+    msg["Subject"] = mail.get("subject")
+    msg["From"] = mail.get("sender")
+    msg["To"] = mail.get("recipient")
 
     # Create a secure SSL context
     context = ssl.create_default_context()
 
     with smtplib.SMTP_SSL(smtp_server, port, context=context) as server:
-        server.login(mail_sender, password)
+        server.login(mail["sender"], password)
         text = msg.as_string()
-        server.sendmail(mail_sender, mail_recipient, text)
+        server.sendmail(mail["subject"], mail["recipient"], text)
 
 
 if __name__ == "__main__":

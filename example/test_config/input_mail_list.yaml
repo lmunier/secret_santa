@@ -1,0 +1,10 @@
+# Test - Supposed to be used for testing purposes.
+# ------------
+# Input mailing list of all the participants.
+
+test_config:
+  Toto Tutu: toto.tutu@test.com
+  Essai: essai@test.com
+  Hello World: hello.world@test.com
+  Titi Tata: titi.tata@test.com
+  John Smith: john.smith@test.com

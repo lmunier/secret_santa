@@ -1,0 +1,13 @@
+port: 465 # ssl
+smtp_server: "smtp.test.com"
+mail_sender: "test@test.com"
+
+test_config:
+  input_file: "input_mail_list.yaml"
+  output_file: "output_mail_list.yaml"
+
+  mail_subject: "Test"
+  mail_body: |
+      CFG_RECIPIENT - This is a test over multiple lines :\n
+      CFG_TARGET\n\n
+      Results coming later on!\n
