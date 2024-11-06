@@ -15,10 +15,12 @@ import yaml
 
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from datetime import datetime
 
 
 def main():
     list_people = []
+    current_year = datetime.now().year
 
     global_config = get_global_config()
     private_config = get_config(global_config["private_folder"])
@@ -31,10 +33,18 @@ def main():
         print("[ERROR] - This sublist does not exist.")
         return
 
-    list_people = recover_people(
-        private_config[answer]["input_file"], private_config[answer]["output_file"]
-    )
+    list_people = recover_people(private_config[answer]["input_file"])
 
+    # Shuffle list if
+    answer = input("[Question] - Would you like to shuffle list ? [y/N] ")
+    if answer.lower() == "y":
+        random.shuffle(list_people)
+
+    # Save people to file
+    yaml.add_representer(str, str_presenter)
+    save_people(list_people, private_config["test"]["output_file"])
+
+    # Send mail
     answer = input("[Question] - Would you like to send mail ? [y/N] ")
     if answer.lower() == "y":
         password = input("[Question] - Type your password and press enter: ")
@@ -96,13 +106,12 @@ def get_config(private_folder: str) -> dict:
     return config
 
 
-def recover_people(input_file: str, output_file: str) -> list:
+def recover_people(input_file: str) -> list:
     """
     Recover people from a given input file, optionally shuffle the list, and save to an output file.
 
     Args:
         input_file (str): The path to the input file containing the list of people.
-        output_file (str): The path to the output file where the processed list will be saved.
 
     Returns:
         list: A list of tuples, where each tuple contains the name and additional information of a person.
@@ -117,16 +126,60 @@ def recover_people(input_file: str, output_file: str) -> list:
     if len(info_people) == 0:
         print("[ERROR] - List of people is empty.")
 
-    # Shuffle list if
-    answer = input("[Question] - Would you like to shuffle list ? [y/N] ")
-    if answer.lower() == "y":
-        random.shuffle(info_people)
-
-    with open(output_file, "w") as santas:
-        for people in info_people:
-            santas.write(people[0] + "," + people[1] + "\n")
-
     return info_people
+
+
+def str_presenter(dumper: yaml.Dumper, data: str) -> yaml.Node:
+    """
+    Custom YAML string presenter for PyYAML.
+
+    This function modifies the way strings are represented in YAML format.
+    If the string contains a newline character, it will be represented using
+    the block style (|). Otherwise, it will be represented using the default
+    scalar style.
+
+    Args:
+        dumper (yaml.Dumper): The YAML dumper instance.
+        data (str): The string data to be represented.
+
+    Returns:
+        yaml.Node: The YAML node representing the string.
+    """
+    if "\n" in data:
+        return dumper.represent_scalar("tag:yaml.org,2002:str", data, style="|")
+
+    return dumper.represent_scalar("tag:yaml.org,2002:str", data)
+
+
+def save_people(list_people: list, output_file: str):
+    """
+    Save the list of people into the output file.
+
+    Args:
+        list_people (list): A list of tuples, where each tuple contains the name and additional information of a person.
+        output_file (str): The path to the output file where the list of people will be saved.
+    """
+    current_year = datetime.now().year
+
+    # Load the existing data from the YAML file
+    try:
+        with open(output_file, "r") as file:
+            # Load existing data or initialize as empty dict if file is empty
+            data = yaml.safe_load(file) or {}
+    except FileNotFoundError:
+        data = {}  # Start with an empty dict if the file doesn't exist
+
+    # Add the new entry to the data
+    str_people = ""
+    for people in list_people:
+        str_people += f"{people[0]},{people[1]}\n"
+
+    new_entry = {f"year_{current_year}": str_people}
+    data.update(new_entry)
+
+    # Write the updated data back to the YAML file
+    with open(output_file, "w") as file:
+        yaml.dump(data, file, default_flow_style=False)
 
 
 def create_body(recipient: str, target: str, mail_body: str) -> str:
