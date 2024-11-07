@@ -14,15 +14,21 @@ sends mail to each person. It also keeps information from previous years to
 avoid sending mail to the same person each time.
 """
 
+from io import StringIO
+from ruamel.yaml import YAML
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from datetime import datetime
 
+import os
+import re
 import getpass
 import random
 import smtplib
 import ssl
-import yaml
+
+yaml = YAML()
+yaml.preserve_quotes = True
 
 
 def main():
@@ -48,11 +54,8 @@ def main():
         random.shuffle(list_people)
 
     # Save people order
-    output_file = (
-        global_config["private_folder"]
-        + "/"
-        + config_sublist
-        + "/output_mail_list.yaml"
+    output_file = os.path.join(
+        global_config["private_folder"], config_sublist, "output_mail_list.yaml"
     )
     save_people(list_people, output_file)
 
@@ -85,8 +88,9 @@ def get_global_config() -> dict:
     Returns:
         dict: The global configuration loaded from 'global_config.yaml'.
     """
+    os.path.join(os.path.dirname(__file__), "global_config.yaml")
     with open("global_config.yaml", "r", encoding="utf-8") as config_file:
-        config = yaml.safe_load(config_file)
+        config = yaml.load(config_file)
 
     return config
 
@@ -102,7 +106,7 @@ def get_config(private_folder: str) -> dict:
     Returns:
         dict: The contents of the selected configuration file.
     """
-    file_path = private_folder + "/"
+    file_path = ""
 
     # Get the config file to use
     answer = input(
@@ -111,11 +115,10 @@ def get_config(private_folder: str) -> dict:
     if answer == "":
         answer = "config.yaml"
 
-    file_path += answer
-
     # Load the config file
+    file_path = os.path.join(private_folder, answer)
     with open(file_path, "r", encoding="utf-8") as config_file:
-        config = yaml.safe_load(config_file)
+        config = yaml.load(config_file)
 
     return config
 
@@ -136,7 +139,7 @@ def recover_people(private_folder: str, config_sublist: str) -> list:
     # Get the input file to use
     input_sublist = ""
     current_year = datetime.now().year
-    input_file = private_folder + f"/{config_sublist}/input_mail_list.yaml"
+    input_file = os.path.join(private_folder, config_sublist, "input_mail_list.yaml")
 
     if config_sublist == "test_config":
         input_sublist = "test_config"
@@ -145,7 +148,7 @@ def recover_people(private_folder: str, config_sublist: str) -> list:
 
     # Recover peoples from file
     with open(input_file, "r", encoding="utf-8") as info:
-        dict_info_people = yaml.safe_load(info)[input_sublist]
+        dict_info_people = yaml.load(info)[input_sublist]
 
     if not dict_info_people:
         print("[ERROR] - List of people is empty.")
@@ -170,7 +173,7 @@ def save_people(list_people: list, output_file: str):
     try:
         with open(output_file, "r", encoding="utf-8") as file:
             # Load existing data or initialize as empty dict if file is empty
-            data = yaml.safe_load(file) or {}
+            data = yaml.load(file) or {}
     except FileNotFoundError:
         data = {}  # Start with an empty dict if the file doesn't exist
 
@@ -178,9 +181,28 @@ def save_people(list_people: list, output_file: str):
     new_entry = {f"year_{current_year}": dict(list_people)}
     data.update(new_entry)
 
-    # Write the updated data back to the YAML file
+    # Dump the data to a string
+    stream = StringIO()
+    yaml.dump(data, stream)
+    yaml_str = stream.getvalue()
+
+    # Insert empty lines between sections
+    sections = yaml_str.split("\n")
+    formatted_sections = []
+
+    for section in sections:
+        if section == "":
+            continue
+
+        if re.compile(r"^[a-zA-Z0-9_-]+:").match(section):
+            formatted_sections.append("\n")
+
+        formatted_sections.append(section + "\n")
+    formatted_yaml_str = "".join(formatted_sections).strip()
+
+    # Write the formatted string back to the YAML file
     with open(output_file, "w", encoding="utf-8") as file:
-        yaml.dump(data, file, default_flow_style=False, sort_keys=False)
+        file.write(formatted_yaml_str)
 
 
 def create_body(recipient: str, target: str, mail_body: str) -> str:
