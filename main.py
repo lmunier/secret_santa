@@ -62,23 +62,7 @@ def main():
     # Send mail
     answer = input("[Question] - Would you like to send mail ? [y/N] ")
     if answer.lower() == "y":
-        password = prompt_for_password()
-
-        for idx, people in enumerate(list_people):
-            next_people = list_people[(idx + 1) % len(list_people)][0]
-            mail_body = create_body(
-                people[0], next_people, private_config[config_sublist]["mail_body"]
-            )
-
-            send_email(
-                mail_body,
-                password,
-                private_config["smtp_server"],
-                private_config["port"],
-                sender=private_config["mail_sender"],
-                recipient=people[1],
-                subject=private_config[config_sublist]["mail_subject"],
-            )
+        send_email(list_people, private_config, config_sublist)
 
 
 def get_global_config() -> dict:
@@ -159,7 +143,7 @@ def recover_people(private_folder: str, config_sublist: str) -> list:
 
 def save_people(list_people: list, output_file: str):
     """
-    Save the list of people into the output file.
+    Save the list of people into the output file in a certain yaml format.
 
     Args:
         list_people (list): A list of tuples, where each tuple contains the name
@@ -205,24 +189,6 @@ def save_people(list_people: list, output_file: str):
         file.write(formatted_yaml_str)
 
 
-def create_body(recipient: str, target: str, mail_body: str) -> str:
-    """
-    Replaces placeholders in the mail body with the recipient and target names.
-
-    Args:
-        recipient (str): The name of the recipient.
-        target (str): The name of the target.
-        mail_body (str): The body of the mail containing placeholders.
-
-    Returns:
-        str: The mail body with placeholders replaced by the recipient and target names.
-    """
-    mail_body = mail_body.replace("CFG_RECIPIENT", recipient)
-    mail_body = mail_body.replace("CFG_TARGET", target)
-
-    return mail_body
-
-
 def prompt_for_password() -> str:
     """
     Prompts the user for a password securely.
@@ -233,33 +199,49 @@ def prompt_for_password() -> str:
     return getpass.getpass("[Question] - Type your password and press enter: ")
 
 
-def send_email(body: str, password: str, smtp_server: str, port: int, **mail: dict):
+def send_email(list_people: list, private_config: dict, config_sublist: str):
     """
     Sends an email using the specified SMTP server and port.
 
     Args:
-        body (str): The body of the email.
-        password (str): The password for the sender's email account.
-        smtp_server (str): The SMTP server address.
-        port (int): The port to use for the SMTP server.
-        mail (dict): A dictionary containing the email parameters.
+        list_people (list): A list of tuples, where each tuple contains the name
+                            and additional information of a person.
+        private_config (dict): The private configuration loaded from the private
+                               configuration file.
+        config_sublist (str): The sublist to take configuration from.
     """
-    # Create a text/plain message
-    msg = MIMEMultipart()
-    msg.attach(MIMEText(body, "plain"))
+    password = prompt_for_password()
 
-    # Set email parameters
-    msg["Subject"] = mail.get("subject")
-    msg["From"] = mail.get("sender")
-    msg["To"] = mail.get("recipient")
+    # Retrieve mail parameters
+    param_mail_body = private_config[config_sublist]["mail_body"]
+    param_subject = private_config[config_sublist]["mail_subject"]
+    param_sender = private_config["mail_sender"]
 
-    # Create a secure SSL context
-    context = ssl.create_default_context()
+    for i in range(len(list_people)):
+        santa = list_people[i]
+        santa_target = list_people[(i + 1) % len(list_people)]
 
-    with smtplib.SMTP_SSL(smtp_server, port, context=context) as server:
-        server.login(mail["sender"], password)
-        text = msg.as_string()
-        server.sendmail(mail["subject"], mail["recipient"], text)
+        # Modify mail body
+        mail_body = param_mail_body.replace("CFG_RECIPIENT", santa[0])
+        mail_body = mail_body.replace("CFG_TARGET", santa_target[0])
+
+        # Create a text/plain message
+        msg = MIMEMultipart()
+        msg.attach(MIMEText(mail_body, "plain"))
+
+        # Set email parameters
+        msg["Subject"] = param_subject
+        msg["From"] = param_sender
+        msg["To"] = santa[1]
+
+        # Create a secure SSL context
+        context = ssl.create_default_context()
+
+        with smtplib.SMTP_SSL(
+            private_config["smtp_server"], private_config["port"], context=context
+        ) as server:
+            server.login(param_sender, password)
+            server.sendmail(param_sender, santa[1], msg.as_string())
 
 
 if __name__ == "__main__":
