@@ -5,13 +5,14 @@
 main.py
 
 Author: Munier Louis
-Version: 1.2
+Version: 2.0
 Date: 2024-11-08
 
-Script to shuffle and send e-mail in the case of a friendly secret santa.
-It gets the list of people from a file, shuffles it, saves it to a file, and
-sends mail to each person. It also keeps information from previous years to
-avoid sending mail to the same person each time.
+Script to shuffle, send e-mail and generate PDF in the case of a friendly
+secret santa. It gets the list of people from a file, shuffles it, saves it
+to a file, and sends mail to each person. It also keeps information from
+previous years, to avoid sending mail to the same person each time, and can
+get pairs to avoid.
 """
 
 import os
@@ -22,33 +23,49 @@ import random
 import smtplib
 import ssl
 import socket
+import logging
 
 from io import StringIO
+from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from datetime import datetime
 
 from itertools import permutations
 from ruamel.yaml import YAML
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen import canvas
 
+# Constants
+CONFIG_FILE = "global_config.yaml"
+DEFAULT_CONFIG_FILE = "config.yaml"
+DEFAULT_SUBLIST = "test_config"
+
+MAX_ITERATION = 1000
+FONT_SIZE_TITLE = 24
+FONT_SIZE_TEXT = 15
 
 yaml = YAML()
 yaml.preserve_quotes = True
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
+
 
 def main():
     """Main function of the script."""
-    list_people = []
-
     global_config = get_global_config()
     private_config = get_config(global_config["private_folder"])
 
     # Get peoples from file
-    config_sublist = input("[Question] - Which yaml sublist to take ? [test_config] ")
+    config_sublist = input(
+        f"[Question] - Which yaml sublist to take ? [{DEFAULT_SUBLIST}] "
+    )
     if config_sublist == "":
-        config_sublist = "test_config"
+        config_sublist = DEFAULT_SUBLIST
     elif config_sublist not in private_config:
-        print("[ERROR] - This sublist does not exist.")
+        logging.error("This sublist does not exist.")
         return
 
     # Get the list of people shuffled
@@ -64,6 +81,12 @@ def main():
     )
     save_people(list_people, output_file)
 
+    # Generate PDF
+    output_pdf = os.path.join(global_config["private_folder"], config_sublist)
+    generate_pdf(
+        output_pdf, list_people, private_config[config_sublist]["mail_subject"]
+    )
+
     # Send mail
     answer = input("[Question] - Would you like to send mail ? [y/N] ")
     if answer.lower() == "y":
@@ -77,8 +100,8 @@ def get_global_config() -> dict:
     Returns:
         dict: The global configuration loaded from 'global_config.yaml'.
     """
-    os.path.join(os.path.dirname(__file__), "global_config.yaml")
-    with open("global_config.yaml", "r", encoding="utf-8") as config_file:
+    config_path = os.path.join(os.path.dirname(__file__), CONFIG_FILE)
+    with open(config_path, "r", encoding="utf-8") as config_file:
         config = yaml.load(config_file)
 
     return config
@@ -95,16 +118,12 @@ def get_config(private_folder: str) -> dict:
     Returns:
         dict: The contents of the selected configuration file.
     """
-    file_path = ""
-
-    # Get the config file to use
     answer = input(
-        "[Question] - Which config file would you like to use ? [config.yaml] "
+        f"[Question] - Which config file would you like to use ? [{DEFAULT_CONFIG_FILE}] "
     )
     if answer == "":
-        answer = "config.yaml"
+        answer = DEFAULT_CONFIG_FILE
 
-    # Load the config file
     file_path = os.path.join(private_folder, answer)
     with open(file_path, "r", encoding="utf-8") as config_file:
         config = yaml.load(config_file)
@@ -132,31 +151,20 @@ def get_people(
         list: A list of tuples, where each tuple contains the name and additional
               information of a person.
     """
-    # Get the input file to use
-    input_sublist = ""
     input_file = os.path.join(private_folder, config_sublist, people_list)
+    input_sublist = (
+        config_sublist if config_sublist == DEFAULT_SUBLIST else f"year_{year}"
+    )
 
-    if config_sublist == "test_config":
-        input_sublist = "test_config"
-    else:
-        input_sublist = f"year_{year}"
-
-    # Get peoples from file
     with open(input_file, "r", encoding="utf-8") as info:
-        dict_info_people = yaml.load(info)[input_sublist]
+        dict_info_people = yaml.load(info).get(input_sublist, {})
 
     if not dict_info_people:
-        print("[ERROR] - List of people is empty.")
+        logging.error("List of people is empty.")
         return [], []
 
-    if "unwanted" in dict_info_people:
-        # Split the list of people into wanted and unwanted people
-        unwanted_people = list(dict_info_people["unwanted"].items())
-        dict_info_people.pop("unwanted")
-
-        return list(dict_info_people.items()), unwanted_people
-
-    return list(dict_info_people.items()), []
+    unwanted_people = dict_info_people.pop("unwanted", {})
+    return list(dict_info_people.items()), list(unwanted_people.items())
 
 
 def compute_all_possibilities(
@@ -168,22 +176,21 @@ def compute_all_possibilities(
     - Same as unwanted ones
 
     Args:
-        list_people (list): A list of tuples, where each tuple contains the name
-                            and additional information of a person.
+        private_folder (str): The path to the private folder containing the input
+                              and output files.
+        config_sublist (str): The sublist to take configuration from.
+        nb_years (int): The number of years to consider when shuffling the list.
 
     Returns:
         list: A list with all the possible pairs without keeping the ones from
               the X previous years and the unwanted ones.
     """
-    # Extract names from the list of tuples and generate all the possible pairs
     list_people, list_unwanted = get_people(
         private_folder, "input_mail_list.yaml", config_sublist
     )
-
     names = [person[0] for person in list_people]
     all_pairs = list(permutations(names, 2))
 
-    # Get all the pairs from X previous years
     current_year = datetime.now().year
     for i in range(nb_years):
         old_list_people, _ = get_people(
@@ -198,15 +205,11 @@ def compute_all_possibilities(
             for i, _ in enumerate(old_list_people)
         ]
 
-        # Remove the pairs from the old list
         all_pairs = [pair for pair in all_pairs if pair not in old_pairs]
 
-    # Remove the unwanted pairs
-    unwanted_pairs = []
-    for unwanted in list_unwanted:
-        for unwanted_target in unwanted[1]:
-            unwanted_pairs.append((unwanted[0], unwanted_target))
-
+    unwanted_pairs = [
+        (unwanted[0], target) for unwanted in list_unwanted for target in unwanted[1]
+    ]
     all_pairs = [pair for pair in all_pairs if pair not in unwanted_pairs]
 
     return all_pairs
@@ -215,7 +218,7 @@ def compute_all_possibilities(
 def get_santas_list(private_folder: str, config_sublist: str, nb_years: int) -> list:
     """
     Shuffle the list of people until no one has the same assigned person as
-    for the last nb_years of yeas.
+    for the last nb_years of years or someone classified as unwanted.
 
     Args:
         private_folder (str): The path to the private folder containing the input
@@ -226,64 +229,40 @@ def get_santas_list(private_folder: str, config_sublist: str, nb_years: int) -> 
     Returns:
         list: The shuffled list of people.
     """
-    max_iteration = 1000
     list_people = get_people(private_folder, "input_mail_list.yaml", config_sublist)[0]
 
-    # Shuffle list if and get all possibiles pairs based on criterias from the config files
     answer = input("[Question] - Would you like to shuffle list ? [y/N] ")
     if not answer.lower() == "y":
         return list_people
 
     possible_list = compute_all_possibilities(private_folder, config_sublist, nb_years)
 
-    # Extract santas from the list of tuples
-    list_santas = []
-    random.shuffle(possible_list)
+    for _ in range(MAX_ITERATION):
+        random.shuffle(possible_list)
 
-    first_run = True
-    iteration = 0
-    while iteration < max_iteration:
-        while len(list_santas) < len(list_people) and possible_list:
-            if first_run:
-                santa = possible_list[0][0]
-                next_santa = possible_list[0][1]
-                first_run = False
-            else:
-                santa = next_santa
+        list_santas = []
+        list_filtered = possible_list.copy()
+        santa, next_santa = list_filtered[0]
 
-                try:
-                    next_santa = next(
-                        (pair[1] for pair in possible_list if pair[0] == santa)
-                    )
-                except StopIteration:
-                    break
-
+        for _, _ in enumerate(list_people):
             list_santas.append(
                 next((person for person in list_people if person[0] == santa), None)
             )
+            list_filtered = [pair for pair in list_filtered if santa not in pair]
 
-            # Remove all the pairs beginning with the current santa
-            possible_list = [pair for pair in possible_list if santa not in pair]
+            santa = next_santa
+            next_santa = next(
+                (person[1] for person in list_filtered if person[0] == santa),
+                None,
+            )
 
-            if len(list_santas) == len(list_people) - 1:
-                list_santas.append(
-                    next(
-                        (person for person in list_people if person[0] == next_santa),
-                        None,
-                    )
-                )
+            if not santa:
+                break
 
         if len(list_santas) == len(list_people):
-            break
+            return list_santas
 
-        first_run = True
-        list_santas = []
-        iteration += 1
-
-    if len(list_santas) == len(list_people):
-        return list_santas
-
-    print("[ERROR] - Could not shuffle list with the current conditions.")
+    logging.error("Could not shuffle list with the current conditions.")
     sys.exit(1)
 
 
@@ -299,24 +278,19 @@ def save_people(list_people: list, output_file: str):
     """
     current_year = datetime.now().year
 
-    # Load the existing data from the YAML file
     try:
         with open(output_file, "r", encoding="utf-8") as file:
-            # Load existing data or initialize as empty dict if file is empty
             data = yaml.load(file) or {}
     except FileNotFoundError:
-        data = {}  # Start with an empty dict if the file doesn't exist
+        data = {}
 
-    # Add the new entry to the data
     new_entry = {f"year_{current_year}": dict(list_people)}
     data.update(new_entry)
 
-    # Dump the data to a string
     stream = StringIO()
     yaml.dump(data, stream)
     yaml_str = stream.getvalue()
 
-    # Insert empty lines between sections
     sections = yaml_str.split("\n")
     formatted_sections = []
 
@@ -330,7 +304,6 @@ def save_people(list_people: list, output_file: str):
         formatted_sections.append(section + "\n")
     formatted_yaml_str = "".join(formatted_sections).strip()
 
-    # Write the formatted string back to the YAML file
     with open(output_file, "w", encoding="utf-8") as file:
         file.write(formatted_yaml_str)
 
@@ -347,12 +320,7 @@ def get_credentials(timeout: int, smtp_server: str, port: int) -> tuple:
     Returns:
         tuple: The email and password entered by the user.
     """
-    login = ""
-    password = ""
-
     login = input("[Question] - Type your user mail login and press enter: ")
-
-    # Get password securely
     password = getpass.getpass("[Question] - Type your password and press enter: ")
 
     if not check_credentials(timeout, smtp_server, port, login, password):
@@ -386,24 +354,56 @@ def check_credentials(
             server.login(login, password)
         return True
     except smtplib.SMTPAuthenticationError:
-        print(
-            "[Error] - Authentication error. Please check your credentials and try again."
+        logging.error(
+            "Authentication error. Please check your credentials and try again."
         )
         return False
     except socket.timeout:
-        print(
-            "[Error] - Connection timed out. Please check your network connection and try again."
+        logging.error(
+            "Connection timed out. Please check your network connection and try again."
         )
         return False
     except socket.gaierror:
-        print(
-            """[Error] - Network error. Please check your internet connection and the SMTP server
-            address."""
+        logging.error(
+            "Network error. Please check your internet connection and the SMTP server address."
         )
         return False
     except smtplib.SMTPException as error:
-        print(f"[Error] - SMTP error occurred: {error}")
+        logging.error("SMTP error occurred: %s", error)
         return False
+
+
+def generate_pdf(file_path: str, list_people: list, title: str):
+    """
+    Create a simple PDF with the given text.
+
+    Args:
+        file_path (str): The path to save the PDF file.
+        list_people (list): The generated list for the secret santa.
+        title (str): Title of the generated pdf
+    """
+    pdf_title = title.replace(" ", "_")
+    filename = os.path.join(file_path, f"{pdf_title}.pdf")
+
+    output_pdf = canvas.Canvas(filename, pagesize=A4)
+    width, height = A4
+
+    # Write the title
+    output_pdf.setFont("Helvetica-Bold", FONT_SIZE_TITLE)
+    text_width = output_pdf.stringWidth(title, "Helvetica-Bold", FONT_SIZE_TITLE)
+    x_position = (width - text_width) / 2
+    y_position = height - FONT_SIZE_TITLE - 25
+    output_pdf.drawString(x_position, y_position, title)
+
+    # Add secret santa's list to the pdf
+    arrow_unicode = "\u279F"
+    output_pdf.setFont("Helvetica", FONT_SIZE_TEXT)
+
+    for i in range(len(list_people) - 1):
+        text = f"{list_people[i][0]} {arrow_unicode} {list_people[i + 1][0]}"
+        output_pdf.drawString(100, height - (i + 1) * 1.5 * FONT_SIZE_TEXT - 100, text)
+
+    output_pdf.save()
 
 
 def send_email(list_people: list, private_config: dict, config_sublist: str):
@@ -417,28 +417,21 @@ def send_email(list_people: list, private_config: dict, config_sublist: str):
                                configuration file.
         config_sublist (str): The sublist to take configuration from.
     """
-    # Retrieve mail parameters
     param_mail_body = private_config[config_sublist]["mail_body"]
-
-    # Prompt for email and password until valid credentials are provided
     login, password = get_credentials(
         private_config["timeout"], private_config["smtp_server"], private_config["port"]
     )
 
-    # Send mail to each person
     for i, _ in enumerate(list_people):
         santa = list_people[i]
         santa_target = list_people[(i + 1) % len(list_people)]
 
-        # Modify mail body
         mail_body = param_mail_body.replace("CFG_RECIPIENT", santa[0])
         mail_body = mail_body.replace("CFG_TARGET", santa_target[0])
 
-        # Create a text/plain message
         msg = MIMEMultipart()
         msg.attach(MIMEText(mail_body, "plain"))
 
-        # Set email parameters
         msg["Subject"] = private_config[config_sublist]["mail_subject"]
         msg["From"] = private_config["mail_sender"]
         msg["To"] = santa[1]

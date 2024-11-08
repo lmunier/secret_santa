@@ -1,9 +1,6 @@
 port: 465 # ssl
-timeout: 5 # seconds
-year_before_repeat: 5 # years
-
-smtp_server: "smtpauths.bluewin.ch"
-mail_sender: "louis.munier@bluewin.ch"
+smtp_server: "smtp.test.com"
+mail_sender: "test@test.com"
 
 test_config:
   input_file: "input_mail_list.yaml"
