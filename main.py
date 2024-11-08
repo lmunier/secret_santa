@@ -6,19 +6,13 @@ main.py
 
 Author: Munier Louis
 Version: 1.2
-Date: 2024-11-06
+Date: 2024-11-08
 
 Script to shuffle and send e-mail in the case of a friendly secret santa.
 It gets the list of people from a file, shuffles it, saves it to a file, and
 sends mail to each person. It also keeps information from previous years to
 avoid sending mail to the same person each time.
 """
-
-from io import StringIO
-from ruamel.yaml import YAML
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from datetime import datetime
 
 import os
 import re
@@ -27,6 +21,13 @@ import random
 import smtplib
 import ssl
 import socket
+
+from io import StringIO
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from datetime import datetime
+from ruamel.yaml import YAML
+
 
 yaml = YAML()
 yaml.preserve_quotes = True
@@ -108,7 +109,9 @@ def get_config(private_folder: str) -> dict:
     return config
 
 
-def recover_people(private_folder: str, config_sublist: str) -> list:
+def recover_people(
+    private_folder: str, config_sublist: str, year: str = datetime.now().year
+) -> list:
     """
     Recover people from a given input file, return it as a list of tuples.
 
@@ -116,6 +119,7 @@ def recover_people(private_folder: str, config_sublist: str) -> list:
         private_folder (str): The path to the private folder containing the input
                               and output files.
         config_sublist (str): The sublist to take configuration from.
+        year (str): The year to use for the sublist.
 
     Returns:
         list: A list of tuples, where each tuple contains the name and additional
@@ -123,13 +127,12 @@ def recover_people(private_folder: str, config_sublist: str) -> list:
     """
     # Get the input file to use
     input_sublist = ""
-    current_year = datetime.now().year
     input_file = os.path.join(private_folder, config_sublist, "input_mail_list.yaml")
 
     if config_sublist == "test_config":
         input_sublist = "test_config"
     else:
-        input_sublist = f"year_{current_year}"
+        input_sublist = f"year_{year}"
 
     # Recover peoples from file
     with open(input_file, "r", encoding="utf-8") as info:
@@ -252,10 +255,12 @@ def check_credentials(
         return False
     except socket.gaierror:
         print(
-            "[Error] - Network error. Please check your internet connection and the SMTP server address."
+            """[Error] - Network error. Please check your internet connection and the SMTP server
+            address."""
         )
-    except smtplib.SMTPException as e:
-        print(f"[Error] - SMTP error occurred: {e}")
+        return False
+    except smtplib.SMTPException as error:
+        print(f"[Error] - SMTP error occurred: {error}")
         return False
 
 
@@ -272,18 +277,14 @@ def send_email(list_people: list, private_config: dict, config_sublist: str):
     """
     # Retrieve mail parameters
     param_mail_body = private_config[config_sublist]["mail_body"]
-    param_subject = private_config[config_sublist]["mail_subject"]
-    param_sender = private_config["mail_sender"]
 
     # Prompt for email and password until valid credentials are provided
-    param_port = private_config["port"]
-    param_timeout = private_config["timeout"]
-    param_smtp_server = private_config["smtp_server"]
-
-    login, password = get_credentials(param_timeout, param_smtp_server, param_port)
+    login, password = get_credentials(
+        private_config["timeout"], private_config["smtp_server"], private_config["port"]
+    )
 
     # Send mail to each person
-    for i in range(len(list_people)):
+    for i, _ in enumerate(list_people):
         santa = list_people[i]
         santa_target = list_people[(i + 1) % len(list_people)]
 
@@ -296,14 +297,16 @@ def send_email(list_people: list, private_config: dict, config_sublist: str):
         msg.attach(MIMEText(mail_body, "plain"))
 
         # Set email parameters
-        msg["Subject"] = param_subject
-        msg["From"] = param_sender
+        msg["Subject"] = private_config[config_sublist]["mail_subject"]
+        msg["From"] = private_config["mail_sender"]
         msg["To"] = santa[1]
 
         context = ssl.create_default_context()
-        with smtplib.SMTP_SSL(param_smtp_server, param_port, context=context) as server:
+        with smtplib.SMTP_SSL(
+            private_config["smtp_server"], private_config["port"], context=context
+        ) as server:
             server.login(login, password)
-            server.sendmail(param_sender, santa[1], msg.as_string())
+            server.sendmail(private_config["mail_sender"], santa[1], msg.as_string())
 
 
 if __name__ == "__main__":
