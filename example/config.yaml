@@ -1,3 +1,7 @@
+# Config - For testing purposes
+# ------------
+# This file contains all the configuration parameters for the mail sender.
+# Also the different files to get or save the mail lists and results.
 port: 465 # ssl
 smtp_server: "smtp.test.com"
 mail_sender: "test@test.com"

@@ -1,4 +1,8 @@
 # Test file
+# ------------
+# Resulting secret santa mail list to create the pairs.
+# The pairs are formed using the first person sending to the second and so on.
+# The last person sends to the first person.
 
 test:
   Essai: essai@test.com
