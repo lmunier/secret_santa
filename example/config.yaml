@@ -1,6 +1,9 @@
 port: 465 # ssl
-smtp_server: "smtp.test.com"
-mail_sender: "test@test.com"
+timeout: 5 # seconds
+year_before_repeat: 5 # years
+
+smtp_server: "smtpauths.bluewin.ch"
+mail_sender: "louis.munier@bluewin.ch"
 
 test_config:
   input_file: "input_mail_list.yaml"
@@ -8,6 +11,6 @@ test_config:
 
   mail_subject: "Test"
   mail_body: |
-      CFG_RECIPIENT - This is a test over multiple lines :\n
-      CFG_TARGET\n\n
-      Results coming later on!\n
+      CFG_RECIPIENT - This is a test over multiple lines :
+      CFG_TARGET
+      Results coming later on!
