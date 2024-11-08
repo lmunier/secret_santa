@@ -26,6 +26,7 @@ import getpass
 import random
 import smtplib
 import ssl
+import socket
 
 yaml = YAML()
 yaml.preserve_quotes = True
@@ -189,14 +190,73 @@ def save_people(list_people: list, output_file: str):
         file.write(formatted_yaml_str)
 
 
-def prompt_for_password() -> str:
+def get_credentials(timeout: int, smtp_server: str, port: int) -> tuple:
     """
-    Prompts the user for a password securely.
+    Prompts the user for email and password securely.
+
+    Args:
+        timeout (int): The timeout to use for the SMTP connection.
+        smtp_server (str): The SMTP server address.
+        port (int): The port to use for the SMTP server.
 
     Returns:
-        str: The password entered by the user.
+        tuple: The email and password entered by the user.
     """
-    return getpass.getpass("[Question] - Type your password and press enter: ")
+    login = ""
+    password = ""
+
+    login = input("[Question] - Type your user mail login and press enter: ")
+
+    # Get password securely
+    password = getpass.getpass("[Question] - Type your password and press enter: ")
+
+    if not check_credentials(timeout, smtp_server, port, login, password):
+        return get_credentials(timeout, smtp_server, port)
+
+    return login, password
+
+
+def check_credentials(
+    timeout: int, smtp_server: str, port: int, login: str, password: str
+) -> bool:
+    """
+    Checks if the provided login and password are valid by attempting to log in to the SMTP server.
+
+    Args:
+        timeout (int): The timeout to use for the SMTP connection.
+        smtp_server (str): The SMTP server address.
+        port (int): The port to use for the SMTP server.
+        login (str): The login to log in with.
+        password (str): The password to log in with.
+
+    Returns:
+        bool: True if the credentials are valid, False otherwise.
+    """
+    context = ssl.create_default_context()
+
+    try:
+        with smtplib.SMTP_SSL(
+            smtp_server, port, context=context, timeout=timeout
+        ) as server:
+            server.login(login, password)
+        return True
+    except smtplib.SMTPAuthenticationError:
+        print(
+            "[Error] - Authentication error. Please check your credentials and try again."
+        )
+        return False
+    except socket.timeout:
+        print(
+            "[Error] - Connection timed out. Please check your network connection and try again."
+        )
+        return False
+    except socket.gaierror:
+        print(
+            "[Error] - Network error. Please check your internet connection and the SMTP server address."
+        )
+    except smtplib.SMTPException as e:
+        print(f"[Error] - SMTP error occurred: {e}")
+        return False
 
 
 def send_email(list_people: list, private_config: dict, config_sublist: str):
@@ -210,13 +270,19 @@ def send_email(list_people: list, private_config: dict, config_sublist: str):
                                configuration file.
         config_sublist (str): The sublist to take configuration from.
     """
-    password = prompt_for_password()
-
     # Retrieve mail parameters
     param_mail_body = private_config[config_sublist]["mail_body"]
     param_subject = private_config[config_sublist]["mail_subject"]
     param_sender = private_config["mail_sender"]
 
+    # Prompt for email and password until valid credentials are provided
+    param_port = private_config["port"]
+    param_timeout = private_config["timeout"]
+    param_smtp_server = private_config["smtp_server"]
+
+    login, password = get_credentials(param_timeout, param_smtp_server, param_port)
+
+    # Send mail to each person
     for i in range(len(list_people)):
         santa = list_people[i]
         santa_target = list_people[(i + 1) % len(list_people)]
@@ -234,13 +300,9 @@ def send_email(list_people: list, private_config: dict, config_sublist: str):
         msg["From"] = param_sender
         msg["To"] = santa[1]
 
-        # Create a secure SSL context
         context = ssl.create_default_context()
-
-        with smtplib.SMTP_SSL(
-            private_config["smtp_server"], private_config["port"], context=context
-        ) as server:
-            server.login(param_sender, password)
+        with smtplib.SMTP_SSL(param_smtp_server, param_port, context=context) as server:
+            server.login(login, password)
             server.sendmail(param_sender, santa[1], msg.as_string())
 
 
