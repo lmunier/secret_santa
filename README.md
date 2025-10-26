@@ -15,16 +15,18 @@ git clone git@github.com:lmunier/secret_santa.git
 **Recommended** - Source the virtual environment using :
 
 ```bash
-source venv/bin/activate
+source .venv/bin/activate
 ```
 
-**Not Recommended** - Installing python packages :
+**Not Recommended** - Installing python packages on host computer :
 
 ```bash
 pip install -r requirements.txt
 ```
 
 ### Run
+
+First of all, to use custom data, change the `private_folder` configuration inside `global_config` file.
 
 Then simply use python3 command to run *main.py* and follow the instructions. You have to fill the correct files to have a custom behavior, see the folder *example* to check all the files to modify.
 

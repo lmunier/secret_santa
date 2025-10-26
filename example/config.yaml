@@ -3,6 +3,9 @@
 # This file contains all the configuration parameters for the mail sender.
 # Also the different files to get or save the mail lists and results.
 port: 465 # ssl
+timeout: 5 # seconds
+year_before_repeat: 10 # years
+
 smtp_server: "smtp.test.com"
 mail_sender: "test@test.com"
 
